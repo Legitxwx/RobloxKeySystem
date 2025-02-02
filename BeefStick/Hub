@@ -1,0 +1,1152 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "BeefStick Hub",
+   Icon = 0, -- Icon in Topbar. Can use Lucide Icons (string) or Roblox Image (number). 0 to use no icon (default).
+   LoadingTitle = "Welcome To BeefStick Hub Script",
+   LoadingSubtitle = "Hope You Enjoy This!",
+   Theme = "Default", -- Check https://docs.sirius.menu/rayfield/configuration/themes
+
+   DisableRayfieldPrompts = false,
+   DisableBuildWarnings = false, -- Prevents Rayfield from warning when the script has a version mismatch with the interface
+
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = nil, -- Create a custom folder for your hub/game
+      FileName = "Big Hub"
+   },
+
+   Discord = {
+      Enabled = false, -- Prompt the user to join your Discord server if their executor supports it
+      Invite = "noinvitelink", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ ABCD would be ABCD
+      RememberJoins = true -- Set this to false to make them join the discord every time they load it up
+   },
+
+   KeySystem = false, -- Set this to true to use our key system
+   KeySettings = {
+      Title = "Untitled",
+      Subtitle = "Key System",
+      Note = "No method of obtaining the key is provided", -- Use this to tell the user how to get a key
+      FileName = "Key", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
+      SaveKey = true, -- The user's key will be saved, but if you change the key, they will be unable to use your script
+      GrabKeyFromSite = false, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
+      Key = {"Hello"} -- List of keys that will be accepted by the system, can be RAW file links (pastebin, github etc) or simple strings ("hello","key22")
+   }
+})
+
+local Tab = Window:CreateTab("Main", "house")
+
+-- List of Fishing Rods
+local rods = {
+    "Flimsy Rod", "Training Rod", "Plastic Rod", "Carbon Rod", "Fast Rod", "Lucky Rod", "Mythical Rod",
+    "Long Rod", "Fortune Rod", "Magnet Rod", "Steady Rod", "Fungal Rod", "Rapid Rod", "Nocturnal Rod",
+    "Midas Rod", "Kings Rod", "Destiny Rod", "Reinforced Rod", "Trident Rod", "Rod Of The Depths",
+    "Scurvy Rod", "Relic Rod", "Stone Rod", "Phoenix Rod", "Astral Rod", "Candy Cane Rod", "Antler Rod",
+    "Frost Warden Rod", "Arctic Rod", "Avalanche Rod", "Crystalized Rod", "Ice Warpers Rod", "Summit Rod",
+    "Heaven's Rod", "Frostfire Rod", "Rod of the Exalted One", "Firework Rod", "Auric Rod", "Champions Rod",
+    "Depthseeker Rod", "Tempest Rod", "Abyssal Specter Rod", "Poseidon Rod", "Zeus Rod", "Kraken Rod",
+    "Seraphic Rod", "Precision Rod", "Wisdom Rod", "Resourceful Rod", "Seasons Rod", "Krampus's Rod",
+    "Riptide Rod", "Voyager Rod", "The Lost Rod", "Celestial Rod", "Rod of the Eternal King", 
+    "Rod of the Forgotten Fang"
+}
+
+-- Variable to store the selected rod
+local selectedRod = rods[1] -- Default selection
+
+-- Dropdown for Selecting a Rod
+local Dropdown = Tab:CreateDropdown({
+    Name = "Select Fishing Rod",
+    Options = rods,
+    CurrentOption = {selectedRod},
+    MultipleOptions = false,
+    Flag = "RodDropdown",
+    Callback = function(Option)
+        selectedRod = Option -- Update the selected rod
+        print("Selected Rod: " .. selectedRod)
+    end,
+})
+
+-- Button to Equip the Selected Rod
+local Button = Tab:CreateButton({
+    Name = "Equip Selected Rod",
+    Callback = function()
+        if not selectedRod then
+            warn("Please select a rod first!")
+            return
+        end
+
+        local player = game.Players.LocalPlayer
+        local backpack = player:WaitForChild("Backpack")
+        local inventory = player:FindFirstChild("Inventory") or backpack
+
+        -- Check if the player owns the selected rod
+        local ownedRod = inventory:FindFirstChild(selectedRod) or player:FindFirstChild(selectedRod)
+
+        if ownedRod then
+            -- Equip the rod to the backpack
+            ownedRod.Parent = backpack
+            print(selectedRod .. " equipped successfully!")
+        else
+            warn("You do not own the selected rod: " .. selectedRod)
+        end
+    end,
+})
+
+-- Configuration variables
+local config = {
+    fpsCap = 9999,
+    disableChat = false,            -- Set to true to hide the chat
+    enableBigButton = false,        -- Set to true to enlarge the button in the shake UI
+    bigButtonScaleFactor = 0.5,      -- Scale factor for big button size
+    shakeSpeed = 0.01,             -- Lower value means faster shake (e.g., 0.05 for fast, 0.1 for normal)
+    FreezeWhileFishing = true      -- Set to true to freeze your character while fishing
+}
+
+-- Set FPS cap
+setfpscap(config.fpsCap)
+
+-- Services
+local players = game:GetService("Players")
+local vim = game:GetService("VirtualInputManager")
+local run_service = game:GetService("RunService")
+local replicated_storage = game:GetService("ReplicatedStorage")
+local localplayer = players.LocalPlayer
+local playergui = localplayer.PlayerGui
+local StarterGui = game:GetService("StarterGui")
+
+-- Disable chat if the option is enabled in config
+if config.disableChat then
+    StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+end
+
+-- Utility functions
+local utility = {blacklisted_attachments = {"bob", "bodyweld"}}; do
+    function utility.simulate_click(x, y, mb)
+        vim:SendMouseButtonEvent(x, y, (mb - 1), true, game, 1)
+        vim:SendMouseButtonEvent(x, y, (mb - 1), false, game, 1)
+    end
+
+    function utility.move_fix(bobber)
+        for index, value in ipairs(bobber:GetDescendants()) do
+            if (value.ClassName == "Attachment" and table.find(utility.blacklisted_attachments, value.Name)) then
+                value:Destroy()
+            end
+        end
+    end
+end
+
+local farm = {reel_tick = nil, cast_tick = nil, fishingEnabled = false}; do
+
+    function farm.find_rod()
+        local character = localplayer.Character
+        if not character then return nil end
+
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name:find("rod") or tool.Name:find("Rod")) then
+                return tool
+            end
+        end
+        return nil
+    end
+
+    function farm.freeze_character(freeze)
+        local character = localplayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                if freeze then
+                    humanoid.WalkSpeed = 0
+                    humanoid.JumpPower = 0
+                else
+                    humanoid.WalkSpeed = 16  -- Default WalkSpeed
+                    humanoid.JumpPower = 50  -- Default JumpPower
+                end
+            end
+        end
+    end
+
+    function farm.cast()
+        local character = localplayer.Character
+        if not character then return end
+
+        local rod = farm.find_rod()
+        if not rod then return end
+
+        -- Instantly cast without cooldown
+        local args = { [1] = 100, [2] = 1 }
+        rod:FindFirstChild("events").cast:FireServer(unpack(args)) -- Fix the event access
+        farm.cast_tick = 0  -- Reset last cast time
+    end
+
+    function farm.shake()
+        local shake_ui = playergui:FindFirstChild("shakeui")
+        if shake_ui then
+            local safezone = shake_ui:FindFirstChild("safezone")
+            local button = safezone and safezone:FindFirstChild("button")
+
+            if button then
+                -- Apply big button option from config
+                if config.enableBigButton then
+                    button.Size = UDim2.new(config.bigButtonScaleFactor, 0, config.bigButtonScaleFactor, 0)
+                else
+                    button.Size = UDim2.new(1, 0, 1, 0)  -- Reset to default size if disabled
+                end
+
+                if button.Visible then
+                    utility.simulate_click(
+                        button.AbsolutePosition.X + button.AbsoluteSize.X / 2,
+                        button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2,
+                        1
+                    )
+                end
+            end
+        end
+    end
+
+    function farm.reel()
+        local reel_ui = playergui:FindFirstChild("reel")
+        if not reel_ui then return end
+
+        local reel_bar = reel_ui:FindFirstChild("bar")
+        if not reel_bar then return end
+       
+        local reel_client = reel_bar:FindFirstChild("reel")
+        if not reel_client then return end
+
+        if reel_client.Disabled == true then
+            reel_client.Disabled = false
+        end
+
+        local update_colors = getsenv(reel_client).UpdateColors
+
+        -- Instant reel without waiting
+        if update_colors then
+            setupvalue(update_colors, 1, 100)
+            replicated_storage:WaitForChild("events").reelfinished:FireServer(getupvalue(update_colors, 1), true)
+        end
+    end
+
+    -- Main loop with rod check, configurable shake speed, and freeze feature
+    function farm.toggleFishing(toggle)
+        farm.fishingEnabled = toggle
+    end
+end
+
+-- UI Toggle Button for enabling/disabling fishing actions
+local Toggle = Tab:CreateToggle({
+    Name = "Auto Fish v2",
+    CurrentValue = false,
+    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Callback = function(Value)
+        -- Enable or disable fishing actions based on toggle state
+        farm.toggleFishing(Value)
+    end,
+})
+
+-- Main loop with toggling fishing actions based on farm.fishingEnabled
+while task.wait(config.shakeSpeed) do
+    if farm.fishingEnabled then
+        local rod = farm.find_rod() -- Check if player is holding a rod
+        if rod then
+            -- Freeze character if enabled in config
+            if config.FreezeWhileFishing then
+                farm.freeze_character(true)
+            end
+            farm.cast()
+            farm.shake()
+            farm.reel()
+        else
+            -- Unfreeze character when not fishing
+            farm.freeze_character(false)
+        end
+    else
+        -- Ensure the character is not frozen when fishing is disabled
+        farm.freeze_character(false)
+    end
+end
+
+local Section = Tab:CreateSection("----------------------FISHING------------------------")
+
+-- Auto Reel Toggle
+local Tab = Tab:CreateToggle({
+    Name = "Auto Reel",
+    CurrentValue = false,
+    Flag = "ReelToggle", -- A flag for saving the configuration
+    Callback = function(Value)
+        farm.reelEnabled = Value
+    end,
+})
+
+-- Main loop for Auto Reel
+game:GetService("RunService").Heartbeat:Connect(function()
+    if farm.reelEnabled then
+        local reel_ui = playergui:FindFirstChild("reel")
+        if reel_ui then
+            local reel_bar = reel_ui:FindFirstChild("bar")
+            if reel_bar then
+                local reel_client = reel_bar:FindFirstChild("reel")
+                if reel_client then
+                    if reel_client.Disabled == true then
+                        reel_client.Disabled = false
+                    end
+
+                    local update_colors = getsenv(reel_client).UpdateColors
+
+                    -- Instant reel without waiting
+                    if update_colors then
+                        setupvalue(update_colors, 1, 100)
+                        replicated_storage:WaitForChild("events").reelfinished:FireServer(getupvalue(update_colors, 1), true)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Shake Toggle
+local Tab = Tab:CreateToggle({
+    Name = "Auto Shake",
+    CurrentValue = false,
+    Flag = "ShakeToggle", -- A flag for saving the configuration
+    Callback = function(Value)
+        farm.shakeEnabled = Value
+    end,
+})
+
+-- Main loop for Auto Shake
+game:GetService("RunService").Heartbeat:Connect(function()
+    if farm.shakeEnabled then
+        local shake_ui = playergui:FindFirstChild("shakeui")
+        if shake_ui then
+            local safezone = shake_ui:FindFirstChild("safezone")
+            local button = safezone and safezone:FindFirstChild("button")
+
+            if button and button.Visible then
+                -- Apply big button option from config
+                if config.enableBigButton then
+                    button.Size = UDim2.new(config.bigButtonScaleFactor, 0, config.bigButtonScaleFactor, 0)
+                else
+                    button.Size = UDim2.new(1, 0, 1, 0)  -- Reset to default size if disabled
+                end
+
+                -- Simulate click if button is visible
+                utility.simulate_click(
+                    button.AbsolutePosition.X + button.AbsoluteSize.X / 2,
+                    button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2,
+                    1
+                )
+            end
+        end
+    end
+end)
+
+-- Auto Cast Toggle
+local Tab = Tab:CreateToggle({
+    Name = "Auto Cast",
+    CurrentValue = false,
+    Flag = "CastToggle", -- A flag for saving the configuration
+    Callback = function(Value)
+        farm.castEnabled = Value
+    end,
+})
+
+-- Main loop for Auto Cast
+game:GetService("RunService").Heartbeat:Connect(function()
+    if farm.castEnabled then
+        local rod = farm.find_rod()
+        if rod then
+            local args = { [1] = 100, [2] = 1 }
+            rod:FindFirstChild("events"):FireServer("cast", unpack(args))
+            farm.cast_tick = 0  -- Reset last cast time
+        end
+    end
+end)
+
+local Section = Tab:CreateSection("-------------------AFK-FARM----------------")
+
+local config = {
+    fpsCap = 9999,
+    disableChat = false,            -- Set to true to hide the chat
+    enableBigButton = false,        -- Set to true to enlarge the button in the shake UI
+    bigButtonScaleFactor = 0.5,      -- Scale factor for big button size
+    shakeSpeed = 0.05,             -- Lower value means faster shake (e.g., 0.05 for fast, 0.1 for normal)
+    FreezeWhileFishing = true      -- Set to true to freeze your character while fishing
+}
+
+-- Set FPS cap
+setfpscap(config.fpsCap)
+
+-- Services
+local players = game:GetService("Players")
+local vim = game:GetService("VirtualInputManager")
+local run_service = game:GetService("RunService")
+local replicated_storage = game:GetService("ReplicatedStorage")
+local localplayer = players.LocalPlayer
+local playergui = localplayer.PlayerGui
+local StarterGui = game:GetService("StarterGui")
+
+-- Disable chat if the option is enabled in config
+if config.disableChat then
+    StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+end
+
+-- Utility functions
+local utility = {blacklisted_attachments = {"bob", "bodyweld"}}; do
+    function utility.simulate_click(x, y, mb)
+        vim:SendMouseButtonEvent(x, y, (mb - 1), true, game, 1)
+        vim:SendMouseButtonEvent(x, y, (mb - 1), false, game, 1)
+    end
+
+    function utility.move_fix(bobber)
+        for index, value in ipairs(bobber:GetDescendants()) do
+            if (value.ClassName == "Attachment" and table.find(utility.blacklisted_attachments, value.Name)) then
+                value:Destroy()
+            end
+        end
+    end
+end
+
+local farm = {reel_tick = nil, cast_tick = nil, fishingEnabled = false}; do
+
+    function farm.find_rod()
+        local character = localplayer.Character
+        if not character then return nil end
+
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name:find("rod") or tool.Name:find("Rod")) then
+                return tool
+            end
+        end
+        return nil
+    end
+
+    function farm.freeze_character(freeze)
+        local character = localplayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                if freeze then
+                    humanoid.WalkSpeed = 0
+                    humanoid.JumpPower = 0
+                else
+                    humanoid.WalkSpeed = 16  -- Default WalkSpeed
+                    humanoid.JumpPower = 50  -- Default JumpPower
+                end
+            end
+        end
+    end
+
+    function farm.cast()
+        local character = localplayer.Character
+        if not character then return end
+
+        local rod = farm.find_rod()
+        if not rod then return end
+
+        -- Instantly cast without cooldown
+        local args = { [1] = 100, [2] = 1 }
+        rod:FindFirstChild("events").cast:FireServer(unpack(args)) -- Fix the event access
+        farm.cast_tick = 0  -- Reset last cast time
+    end
+
+    function farm.shake()
+        local shake_ui = playergui:FindFirstChild("shakeui")
+        if shake_ui then
+            local safezone = shake_ui:FindFirstChild("safezone")
+            local button = safezone and safezone:FindFirstChild("button")
+
+            if button then
+                -- Apply big button option from config
+                if config.enableBigButton then
+                    button.Size = UDim2.new(config.bigButtonScaleFactor, 0, config.bigButtonScaleFactor, 0)
+                else
+                    button.Size = UDim2.new(1, 0, 1, 0)  -- Reset to default size if disabled
+                end
+
+                if button.Visible then
+                    utility.simulate_click(
+                        button.AbsolutePosition.X + button.AbsoluteSize.X / 2,
+                        button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2,
+                        1
+                    )
+                end
+            end
+        end
+    end
+
+    function farm.reel()
+        local reel_ui = playergui:FindFirstChild("reel")
+        if not reel_ui then return end
+
+        local reel_bar = reel_ui:FindFirstChild("bar")
+        if not reel_bar then return end
+       
+        local reel_client = reel_bar:FindFirstChild("reel")
+        if not reel_client then return end
+
+        if reel_client.Disabled == true then
+            reel_client.Disabled = false
+        end
+
+        local update_colors = getsenv(reel_client).UpdateColors
+
+        -- Instant reel without waiting
+        if update_colors then
+            setupvalue(update_colors, 1, 100)
+            replicated_storage:WaitForChild("events").reelfinished:FireServer(getupvalue(update_colors, 1), true)
+        end
+    end
+
+    -- Main loop with rod check, configurable shake speed, and freeze feature
+    function farm.toggleFishing(toggle)
+        farm.fishingEnabled = toggle
+    end
+end
+
+-- UI Toggle Button for enabling/disabling fishing actions
+local Toggle = Tab:CreateToggle({
+    Name = "Auto Fish v2",
+    CurrentValue = false,
+    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Callback = function(Value)
+        -- Enable or disable fishing actions based on toggle state
+        farm.toggleFishing(Value)
+    end,
+})
+
+-- Main loop with toggling fishing actions based on farm.fishingEnabled
+while task.wait(config.shakeSpeed) do
+    if farm.fishingEnabled then
+        local rod = farm.find_rod() -- Check if player is holding a rod
+        if rod then
+            -- Freeze character if enabled in config
+            if config.FreezeWhileFishing then
+                farm.freeze_character(true)
+            end
+            farm.cast()
+            farm.shake()
+            farm.reel()
+        else
+            -- Unfreeze character when not fishing
+            farm.freeze_character(false)
+        end
+    else
+        -- Ensure the character is not frozen when fishing is disabled
+        farm.freeze_character(false)
+    end
+end
+
+-- Anti-Kick Script
+local Protection = { AntiKick = false }
+
+local function preventKick()
+    if Protection.AntiKick then
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        local oldNamecall = mt.__namecall
+
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "Kick" and Protection.AntiKick then
+                warn("Kick attempt blocked!")
+                return nil
+            end
+            return oldNamecall(self, ...)
+        end)
+    end
+end
+
+local AntiKickToggle = Tab:CreateToggle({
+    Name = "Anti-Kick",
+    CurrentValue = false,
+    Flag = "AntiKickToggle",
+    Callback = function(Value)
+        Protection.AntiKick = Value
+        if Value then
+            preventKick()
+        end
+    end,
+})
+
+-- Anti-AFK Script
+local vim = game:GetService("VirtualInputManager")
+local Protection = { AntiAFK = false }
+
+local function preventAFK()
+    while Protection.AntiAFK do
+        vim:SendMouseMoveEvent(0, 0, game, 1) -- Simulate activity
+        task.wait(60) -- Every 60 seconds
+    end
+end
+
+local AntiAFKToggle = Tab:CreateToggle({
+    Name = "Anti-AFK",
+    CurrentValue = false,
+    Flag = "AntiAFKToggle",
+    Callback = function(Value)
+        Protection.AntiAFK = Value
+        if Value then
+            task.spawn(preventAFK)
+        end
+    end,
+})
+
+-- Anti-Ban Script
+local Protection = { AntiBan = false }
+
+local function preventBan()
+    if Protection.AntiBan then
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        local oldNamecall = mt.__namecall
+
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+
+            if (method == "FireServer" or method == "InvokeServer") and tostring(self):lower():find("ban") then
+                warn("Ban attempt blocked!")
+                return nil
+            end
+            return oldNamecall(self, unpack(args))
+        end)
+    end
+end
+
+local AntiBanToggle = Tab:CreateToggle({
+    Name = "Anti-Ban",
+    CurrentValue = false,
+    Flag = "AntiBanToggle",
+    Callback = function(Value)
+        Protection.AntiBan = Value
+        if Value then
+            preventBan()
+        end
+    end,
+})
+
+local Tab = Window:CreateTab("Player", "user-cog")
+
+local Toggle = Tab:CreateToggle({
+    Name = "Walk on Water",
+    CurrentValue = false,
+    Flag = "ToggleWalkOnWater",  -- A unique flag for saving the configuration
+    Callback = function(Value)
+        if Value then
+            -- When the toggle is ON, enable walking on water
+            walkOnWater(true)
+        else
+            -- When the toggle is OFF, restore normal behavior (fall into water)
+            walkOnWater(false)
+        end
+    end,
+})
+
+-- Function to enable/disable walking on water
+function walkOnWater(enable)
+    local player = game.Players.LocalPlayer
+    local character = player.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            if enable then
+                -- Enable walk on water: Prevent falling into the water
+                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                humanoid.PlatformStand = true  -- Prevent falling off the water
+                
+                -- Prevent falling into water
+                humanoid:GetPropertyChangedSignal("FloorMaterial"):Connect(function()
+                    if humanoid.FloorMaterial == Enum.Material.Water then
+                        humanoid:Move(Vector3.new(0, 0, 0)) -- Keep the player from falling
+                    end
+                end)
+            else
+                -- Disable walk on water: Allow falling into the water
+                humanoid.PlatformStand = false
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end
+    end
+end
+
+local Input = Tab:CreateInput({
+   Name = "Walk Speed Input",
+   CurrentValue = "16",  -- Default walk speed (as a string)
+   PlaceholderText = "Enter Speed",
+   RemoveTextAfterFocusLost = false,
+   Flag = "InputSpeed", -- A unique flag for saving the configuration
+   Callback = function(Text)
+       -- Try to convert the input to a number
+       local speed = tonumber(Text)
+       
+       -- Ensure the input is a valid number and within a reasonable range
+       if speed and speed >= 0 and speed <= 100 then
+           local player = game.Players.LocalPlayer
+           local character = player.Character
+           if character then
+               local humanoid = character:FindFirstChildOfClass("Humanoid")
+               if humanoid then
+                   humanoid.WalkSpeed = speed  -- Set the WalkSpeed to the entered value
+               end
+           end
+       else
+           -- If the input is not valid, print a warning
+           warn("Invalid speed value. Please enter a number between 0 and 100.")
+       end
+   end,
+})
+
+local Tab = Window:CreateTab("Interaction", "rewind")
+
+-- Creating the Toggle to control the Auto Appraise feature
+local Toggle = Tab:CreateToggle({
+    Name = "Auto Appraise Fish",  -- Title of the toggle
+    CurrentValue = false,  -- Default value (OFF)
+    Flag = "Toggle1",  -- Unique flag for saving the state
+    Callback = function(Value)
+        -- Update the configuration based on toggle value
+        config.autoAppraise = Value
+        if config.autoAppraise then
+            print("Auto Appraise is now: ON")
+        else
+            print("Auto Appraise is now: OFF")
+        end
+    end,
+})
+
+-- Configuration variables
+local config = {
+    autoAppraise = false  -- Default state (OFF)
+}
+
+-- Services
+local players = game:GetService("Players")
+local replicated_storage = game:GetService("ReplicatedStorage")
+local workspace = game:GetService("Workspace")
+local localplayer = players.LocalPlayer
+
+-- Function to auto appraise the fish
+local function autoAppraise()
+    -- Check if the player is holding a fish (assuming it's a tool named "Fish")
+    local character = localplayer.Character
+    if character then
+        local rod = character:FindFirstChildOfClass("Tool")
+        if rod and rod.Name:find("Fish") then
+            -- Invoke the appraise function on the Appraiser NPC
+            local appraiser = workspace:WaitForChild("world"):WaitForChild("npcs"):WaitForChild("Appraiser"):WaitForChild("appraiser")
+            if appraiser then
+                appraiser:WaitForChild("appraise"):InvokeServer()
+            end
+        end
+    end
+end
+
+-- Main loop to check the toggle and appraise the fish if enabled
+game:GetService("RunService").Heartbeat:Connect(function()
+    if config.autoAppraise then
+        -- Call the auto appraise function if toggle is on and holding a fish
+        autoAppraise()
+    end
+end)
+
+-- Anti Drown Toggle Setup
+local Toggle = Tab:CreateToggle({
+    Name = "Anti Drown",  -- Title of the toggle
+    CurrentValue = false,  -- Default value (OFF)
+    Flag = "AntiDrownToggle",  -- Unique flag for saving the state
+    Callback = function(Value)
+        -- Update AntiDrown state based on toggle value
+        AntiDrown = Value
+        print("Anti Drown is now:", AntiDrown and "ON" or "OFF")
+        
+        -- Apply AntiDrown logic
+        handleAntiDrown(AntiDrown)
+    end,
+})
+
+-- Configuration for Anti Drown
+local AntiDrown = false  -- Default is false (Drowning enabled)
+local LocalPlayer = game:GetService("Players").LocalPlayer
+local LocalCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- Function to handle Anti Drown logic
+local function handleAntiDrown(value)
+    if LocalCharacter then
+        -- Find the oxygen object in the character
+        local oxygen = LocalCharacter:FindFirstChild("client"):FindFirstChild("oxygen")
+        
+        if oxygen then
+            if value then
+                -- Disable oxygen (Anti Drown)
+                oxygen.Enabled = false
+            else
+                -- Enable oxygen (Allow Drown)
+                oxygen.Enabled = true
+            end
+        end
+    end
+end
+
+-- Ensure Anti Drown persists when the character respawns
+LocalPlayer.CharacterAdded:Connect(function(character)
+    LocalCharacter = character  -- Update LocalCharacter to the new character
+
+    -- Apply AntiDrown logic when character is added
+    handleAntiDrown(AntiDrown)
+end)
+
+-- Apply initial AntiDrown state
+handleAntiDrown(AntiDrown)
+
+-- Create Toggle for Auto Sell
+local Toggle = Tab:CreateToggle({
+   Name = "Auto Sell",  -- Name of the toggle
+   CurrentValue = false,  -- Default state (OFF)
+   Flag = "AutoSellToggle",  -- Unique flag for saving the state
+   Callback = function(Value)
+       -- Check if toggle is enabled
+       if Value then
+           -- Perform Auto Sell action when toggle is ON
+           autoSell()
+       end
+   end,
+})
+
+-- Function to perform Auto Sell action
+local function autoSell()
+   local world = Workspace:WaitForChild("world")
+   local npcs = world:WaitForChild("npcs")
+   local merchant = npcs:WaitForChild("Marc Merchant")
+   local sellAll = merchant:WaitForChild("merchant"):WaitForChild("sellall")
+
+   -- Invoke the server-side function to sell all items
+   sellAll:InvokeServer()
+   print("Items have been sold!")
+end
+
+-- Optional: Run the Auto Sell continuously while the toggle is ON
+game:GetService("RunService").Heartbeat:Connect(function()
+   if Toggle.Value then
+       -- Continuously trigger auto-sell if toggle is ON
+       autoSell()
+   end
+end)
+
+local Tab = Window:CreateTab("Market", "shop")
+
+-- Create the dropdown with both totem, bait, and other items options
+local Dropdown = Tab:CreateDropdown({
+   Name = "Item Selector",
+   Options = {
+       -- Totems
+       "Windset Totem - 2000C$", "Tempest Totem - 2000C$", "Sundial Totem - 2000C$",
+       "Smokescreen Totem - 2000C$", "Aurora Totem - 500000C$", "Eclipse Totem - 250000C$",
+       "Avalance Totem - 150000C$", "Blizzard Totem - 275000C$", "Meteor Totem - 75000C$",
+
+       -- Device Items
+       "Fish Radar - 100C$", "GPS Device - 8000C$",
+
+       -- Diving Items
+       "Basic Diving Gear - 3000C$", "Advanced Diving Gear - 15000C$", "Flippers - 9000C$",
+       "Super Flippers - 30000C$", "Tidebreaker - 80000C$",
+
+       -- Northern Expedition Items
+       "Basic Oxygen Tank - 1000C$", "Beginner Oxygen Tank - 3500C$", "Intermediate Oxygen Tank - 10000C$",
+       "Advanced Oxygen Tank - 25000C$", "Winter Cloak - 7500C$", "Advanced Glider - 2500C$",
+       "Pickaxe - 5000C$",
+
+       -- Misc Items
+       "Conception Conch - 444C$", "Crab Cage - 85C$", "Glider - 900C$", "Radio - 199 Robux",
+       "Firework - 130C$",
+
+       -- Bait Items
+       "Bait Crates - 120C$ (Moosewood, Roslit Bay, Sunstone Island)", 
+       "Quality Bait Crates - 525C$ (Terrapin Island)"
+   },
+   CurrentOption = {"Windset Totem - 2000C$"},
+   MultipleOptions = false,
+   Flag = "DropdownItem", -- Flag for the configuration
+   Callback = function(Options)
+       -- Get the selected item and price
+       local selectedItem = Options[1]
+       local itemName, itemPrice = selectedItem:match("^(.-) %-(%d+)C%$")
+       
+       -- Update the button text with the selected item and price
+       Button.Text = "Buy " .. itemName .. " for " .. itemPrice .. "C$"
+   end,
+})
+
+-- Create the button that buys the item
+local Button = Tab:CreateButton({
+   Name = "Buy Item",
+   Callback = function()
+       -- Get the selected item and price
+       local selectedItem = Dropdown.CurrentOption[1]
+       local itemName, itemPrice = selectedItem:match("^(.-) %-(%d+)C%$")
+       
+       -- Handle the purchase logic here
+       print("Attempting to buy " .. itemName .. " for " .. itemPrice .. "C$")
+       -- You can add actual game logic here to deduct coins or provide the item (totem, bait, or other) to the player.
+   end,
+})
+
+local Section = Tab:CreateSection("------------------SOON--------------- ")
+
+local Tab = Window:CreateTab("Teleport", "globe")
+
+local islands = {
+    ["Moosewood Dock"] = Vector3.new(360, 133, 264),
+    ["Terrapin Island Dock"] = Vector3.new(-196, 133, 1945),
+    ["Forsaken Shores Dock"] = Vector3.new(-2485, 133, 1562),
+    ["Jack Marrow and Sunken Rod"] = Vector3.new(-2828, 214, 1519),
+    ["Roslit Bay Dock"] = Vector3.new(-1462, 132, 717),
+    ["Ashe (Albino Fish NPC)"] = Vector3.new(-1710, 148, 726),
+    ["Orc"] = Vector3.new(-1848, 165, 160),
+    ["Sunstone Island Dock"] = Vector3.new(-933.5, 131, -1111),
+    ["Merlin"] = Vector3.new(-931, 223, -988),
+    ["Desolate Deep Buoy"] = Vector3.new(-787, 133, -3104),
+    ["Statue Of Sovereignty"] = Vector3.new(38, 133, -1013),
+    ["Enchant Altar"] = Vector3.new(1313, -805, -99),
+    ["Kings Rod"] = Vector3.new(1377, -811, -297),
+    ["Mushgrove Swamp Docks"] = Vector3.new(2444, 130, -680),
+    ["Snowcap Island Docks"] = Vector3.new(2612, 135, 2397),
+    ["Ancient Isle Merchant"] = Vector3.new(6077, 195, 306),
+    ["Ancient Archives Entrance"] = Vector3.new(5957, 154, 482),
+    ["Solar Fragment"] = Vector3.new(6072, 443, 684),
+    ["Earth Fragment"] = Vector3.new(5972, 274, 844),
+    ["Deep Sea Fragment"] = Vector3.new(5838, 76, 389),
+    ["Northern Summit Entrance"] = Vector3.new(-1746, 129, 3879),
+    ["Avalanche Totem"] = Vector3.new(19712, 467, 6059),
+    ["Blizzard Totem"] = Vector3.new(20147, 743, 5805),
+    ["Glacial Grotto Fishing Spot"] = Vector3.new(199999, 1042, 5715),
+    ["Grand Reef"] = Vector3.new(-3575, 151, 524),
+    ["Spot To Place The TNT In The Heart Of Zeus Quest"] = Vector3.new(-3828, -101, 528),
+    ["Entrance To Kraken Pools"] = Vector3.new(-4316, -890, 1831),
+    ["Oil Rig"] = Vector3.new(-1770, 132, -483),
+}
+
+local Dropdown = Tab:CreateDropdown({
+    Name = "Select Island",
+    Options = table.keys(islands),
+    CurrentOption = {"Moosewood Dock"},
+    MultipleOptions = false,
+    Flag = "IslandDropdown",
+    Callback = function(Options)
+        -- Store the selected island in a variable
+        selectedIsland = Options[1]
+    end,
+})
+
+local Button = Tab:CreateButton({
+    Name = "Teleport to Island",
+    Callback = function()
+        -- Teleport the player to the selected island
+        local targetPosition = islands[selectedIsland]
+        if targetPosition then
+            game.Players.LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPosition))
+        end
+    end,
+})
+
+local Dropdown
+local selectedPlayer = nil
+
+-- Function to update the dropdown options with current players
+local function updatePlayerList()
+    local options = {}
+    for _, player in pairs(game.Players:GetPlayers()) do
+        -- Exclude the local player from the list
+        if player ~= game.Players.LocalPlayer then
+            table.insert(options, player.Name)
+        end
+    end
+
+    -- Update the dropdown with current player names
+    if Dropdown then
+        Dropdown:SetOptions(options)
+    end
+end
+
+-- Create the dropdown
+Dropdown = Tab:CreateDropdown({
+    Name = "Select Player",
+    Options = {},  -- Initially empty
+    CurrentOption = {"None"},
+    MultipleOptions = false,
+    Flag = "PlayerDropdown",
+    Callback = function(Options)
+        -- Store the selected player name
+        selectedPlayer = Options[1]
+    end,
+})
+
+-- Create the button
+local Button = Tab:CreateButton({
+    Name = "Teleport to Player",
+    Callback = function()
+        if selectedPlayer then
+            -- Find the player by name
+            local targetPlayer = game.Players:FindFirstChild(selectedPlayer)
+            if targetPlayer and targetPlayer.Character then
+                local targetHumanoidRootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if targetHumanoidRootPart then
+                    -- Teleport to the target player's position
+                    game.Players.LocalPlayer.Character:SetPrimaryPartCFrame(targetHumanoidRootPart.CFrame)
+                else
+                    warn("Target player does not have a HumanoidRootPart")
+                end
+            else
+                warn("Selected player is not available or does not have a character.")
+            end
+        else
+            warn("No player selected.")
+        end
+    end,
+})
+
+-- Update player list when a player joins or leaves
+game.Players.PlayerAdded:Connect(function(player)
+    updatePlayerList()
+end)
+
+game.Players.PlayerRemoving:Connect(function(player)
+    updatePlayerList()
+end)
+
+-- Initial update of the player list
+updatePlayerList()
+
+local levers = {
+    ["Lever 1"] = Vector3.new(-2522, 138, 1593),
+    ["Lever 2"] = Vector3.new(-2551, 150, 1667),
+    ["Lever 3"] = Vector3.new(-2729, 168, 1730),
+    ["Lever 4"] = Vector3.new(-2881, 314, 1605),
+    ["Lever 5"] = Vector3.new(-2835, 131, 1510),
+}
+
+local Dropdown
+local selectedLever = nil
+
+-- Function to update the dropdown options with lever names
+local function updateLeverList()
+    local options = {}
+    for leverName, _ in pairs(levers) do
+        table.insert(options, leverName)
+    end
+
+    -- Update the dropdown with lever names
+    if Dropdown then
+        Dropdown:SetOptions(options)
+    end
+end
+
+-- Create the dropdown
+Dropdown = Tab:CreateDropdown({
+    Name = "Select Lever",
+    Options = {},  -- Initially empty
+    CurrentOption = {"None"},
+    MultipleOptions = false,
+    Flag = "LeverDropdown",
+    Callback = function(Options)
+        -- Store the selected lever name
+        selectedLever = Options[1]
+    end,
+})
+
+-- Create the button
+local Button = Tab:CreateButton({
+    Name = "Teleport to Lever",
+    Callback = function()
+        if selectedLever then
+            -- Find the selected lever's position
+            local leverPosition = levers[selectedLever]
+            if leverPosition then
+                -- Teleport to the selected lever's position
+                game.Players.LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(leverPosition))
+            else
+                warn("Selected lever does not have a position.")
+            end
+        else
+            warn("No lever selected.")
+        end
+    end,
+})
+
+-- Initial update of the lever list
+updateLeverList()
+
+local Tab = Window:CreateTab("Event", "calendar-check")
+
+local Button = Tab:CreateButton({
+   Name = "Grand Reef",
+   Callback = function()
+       -- Target position (change these values to your desired location)
+       local targetPosition = Vector3.new(-3530, 130, 550)  -- Your target coordinates
+
+       -- Teleport the player to the target position
+       local character = game.Players.LocalPlayer.Character
+       if character then
+           character:SetPrimaryPartCFrame(CFrame.new(targetPosition))
+       end
+   end,
+})
+
+local Tab = Window:CreateTab("Misc", "grid-2x2")
+
+local Dropdown = Tab:CreateDropdown({
+   Name = "Dropdown Example",
+   Options = {"Leave", "Rejoin", "Stay"},
+   CurrentOption = {"Stay"},
+   MultipleOptions = false,
+   Flag = "Dropdown1",
+   Callback = function(Options)
+       -- The function that takes place when the selected option is changed
+       if Options[1] == "Leave" then
+           game:Shutdown()  -- Kicks the player and closes the game
+       elseif Options[1] == "Rejoin" then
+           -- Rejoins another server (usually by rejoining the same place)
+           game:GetService("TeleportService"):Teleport(game.PlaceId, game.Players.LocalPlayer)
+       end
+   end,
+})
+
+local Toggle = Tab:CreateToggle({
+   Name = "For Your Safety",
+   CurrentValue = false,
+   Flag = "Toggle1",
+   Callback = function(Value)
+       if Value then
+           -- Toggle is ON, allowing rejoin after disconnection
+           local player = game.Players.LocalPlayer
+           local rejoinEnabled = true
+
+           -- Detect if the player disconnects or if a game update happens
+           player.OnDisconnected:Connect(function()
+               if rejoinEnabled then
+                   -- Wait for a few seconds before attempting to rejoin
+                   wait(5)
+                   game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+               end
+           end)
+
+           -- Check if an admin (or higher) joins
+           game.Players.PlayerAdded:Connect(function(joinedPlayer)
+               local userRank = joinedPlayer:GetRankInGroup(groupId) -- Use groupId if checking rank in a group
+               local isAdmin = userRank >= 255  -- 255 is the highest rank (for admins)
+               if isAdmin then
+                   -- Kick player with message
+                   game.Players.LocalPlayer:Kick("You have been kicked because there are admins or higher in the game.")
+                   -- Dropdown to pick an option if kicked
+                   if Dropdown then
+                       -- Allow player to choose rejoin or leave via dropdown
+                       Dropdown:SetOptions({"Rejoin", "Leave"})
+                   end
+               end
+           end)
+
+       else
+           -- Disable rejoin if toggle is turned off
+           rejoinEnabled = false
+       end
+   end,
+})
