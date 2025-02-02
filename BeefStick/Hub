@@ -429,6 +429,38 @@ local AntiBanToggle = Tab:CreateToggle({
     end,
 })
 
+local Tab = Window:CreateTab("Event", "globe)
+
+local Button = Tab:CreateButton({
+    Name = "Grand Reef",
+    Callback = function()
+        local player = game.Players.LocalPlayer
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+        -- Target position
+        local targetPosition = Vector3.new(-3530, 130, 550)
+
+        -- Teleport the player
+        humanoidRootPart.CFrame = CFrame.new(targetPosition)
+    end,
+})
+
+local Button = Tab:CreateButton({
+    Name = "Kraken Pool (Inside)",
+    Callback = function()
+        local player = game.Players.LocalPlayer
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+        -- Target position
+        local targetPosition = Vector3.new(-4376.9, -996.3, 2036.1)
+
+        -- Teleport the player
+        humanoidRootPart.CFrame = CFrame.new(targetPosition)
+    end,
+})
+
 local Tab = Window:CreateTab("Player", "user-cog")
 
 local Toggle = Tab:CreateToggle({
